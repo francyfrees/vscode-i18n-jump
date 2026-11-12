@@ -148,8 +148,8 @@ function activate(context) {
     { language: 'javascriptreact' },
   ]
 
-  // 内联提示默认关闭，按工作区记住状态；状态栏可点
-  let inline = context.workspaceState.get('i18nJump.inline', false)
+  // 内联提示默认开启，按工作区记住状态；状态栏可点
+  let inline = context.workspaceState.get('i18nJump.inlineOn', true)
   const changed = new vscode.EventEmitter()
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
   status.command = 'i18nJump.toggleInline'
@@ -165,7 +165,7 @@ function activate(context) {
     changed,
     vscode.commands.registerCommand('i18nJump.toggleInline', () => {
       inline = !inline
-      void context.workspaceState.update('i18nJump.inline', inline)
+      void context.workspaceState.update('i18nJump.inlineOn', inline)
       refreshStatus()
       changed.fire()
     }),
