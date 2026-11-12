@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/github/license/francyfrees/vscode-i18n-jump)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/francyfrees/vscode-i18n-jump)](https://github.com/francyfrees/vscode-i18n-jump/releases)
 
-给 Vue / TypeScript 里的 `t('...')` 翻译键加三个能力：**悬停看文案、Cmd+点击定位词条、中文内联提示**。不依赖任何第三方扩展。
+给 **Vue / React / 原生 TypeScript / JavaScript** 里的 `t('...')` 翻译键加三个能力：**悬停看文案、Cmd+点击定位词条、中文内联提示**。不依赖任何第三方扩展，也不绑定某一套 i18n 库。
 
 ![悬停查看翻译](docs/hover.png)
 
@@ -20,7 +20,22 @@
 | 跳转 | `Cmd + 点击` | 打开中文词条所在文件与行 |
 | 内联回显 | 默认开启，状态栏「i18n 中文」可切换 | 在 `t('...')` 后面显示中文，超过 15 字显示 `…` |
 
-支持 `t('...')`、`$t('...')`、`i18n.global.t('...')` 三种写法。
+### 适用范围
+
+扩展对语言/框架没有假设，只认下面这几种**字面量**写法：
+
+| 写法 | 常见来源 |
+| --- | --- |
+| `t('a.b')` | vue-i18n、react-i18next、i18next |
+| `$t('a.b')` | vue-i18n 模板全局 |
+| `i18n.t('a.b')` | i18next 实例 |
+| `i18n.global.t('a.b')` | vue-i18n 组合式 API |
+
+识别的文件类型：`typescript`、`typescriptreact`、`javascript`、`javascriptreact`、`vue`。
+
+不支持的：非字面量键（`` t(`a.${x}`) ``）、对象形式的调用（`formatMessage({ id: 'a.b' })`）。
+
+词条放在哪、有哪几种语言，全部由设置决定（见下方「配置」），所以不在上面列表里的语言目录结构也能用。
 
 ### 中文内联开关
 
