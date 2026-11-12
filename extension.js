@@ -136,9 +136,11 @@ function activate(context) {
       provideDefinition(document, position) {
         const hit = keyAt(document, position)
         if (!hit) return
-        return lookup(hit.key).map(
-          (e) => new vscode.Location(vscode.Uri.file(e.file), new vscode.Position(e.line - 1, 0)),
-        )
+        const entries = lookup(hit.key)
+        if (!entries.length) return
+        // 默认跳中文词条（没有时退回第一条），避免多结果弹选择框
+        const target = entries.find((e) => e.rel.includes('/zh-CN/')) ?? entries[0]
+        return new vscode.Location(vscode.Uri.file(target.file), new vscode.Position(target.line - 1, 0))
       },
     }),
     vscode.workspace.onDidSaveTextDocument((doc) => {
