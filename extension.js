@@ -1,25 +1,39 @@
-// t('...') 的三种辅助：悬停看中英文、Cmd+点击跳到中文词条、内联回显中文（手动开关）。
-// 解析规则与 scripts/i18n-jump.mjs 一致（见 packages/shared/src/common/locale.ts 的 mergeLocaleFile）：
-// 带点文件名与 shared modules 存完整键，单段文件名去掉第一段。
+/* eslint-disable @typescript-eslint/no-require-imports -- VS Code 扩展宿主只加载 CommonJS */
+// t('...') 的三种辅助：悬停看中英文、Cmd+点击跳到词条、内联回显（手动开关）。
+// 词条目录、语言与截断长度都由设置决定，默认值对应本仓库的布局。
 const vscode = require('vscode')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const LANGS = ['zh-CN', 'en-US']
-const BASES = (lang) => [
-  `apps/web/src/locales/${lang}`,
-  `packages/shared/src/i18n/${lang}`,
-  `packages/shared/src/i18n/${lang}/modules`,
-  `apps/server/src/i18n/${lang}`,
-]
+const DEFAULTS = {
+  languages: ['zh-CN', 'en-US'],
+  localePaths: [
+    'apps/web/src/locales/{lang}',
+    'packages/shared/src/i18n/{lang}',
+    'packages/shared/src/i18n/{lang}/modules',
+    'apps/server/src/i18n/{lang}',
+  ],
+  inlineMaxLength: 15,
+}
 const KEY_RE = /(?:\$t|tx?|i18n(?:\.global)?\.t)\(\s*(['"`])([\w.-]+)\1/g
-/** 内联提示保留的字符数，超出用省略号。 */
-const INLINE_MAX = 15
 const cache = new Map()
 
 const rootOf = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
 
-/** 光标所在位置对应的键；不在 t('...') 范围内返回 null。 */
+/** 当前设置；未配置时用 DEFAULTS。 */
+function settings() {
+  const cfg = vscode.workspace.getConfiguration('i18nJump')
+  return {
+    languages: cfg.get('languages', DEFAULTS.languages),
+    localePaths: cfg.get('localePaths', DEFAULTS.localePaths),
+    inlineMaxLength: cfg.get('inlineMaxLength', DEFAULTS.inlineMaxLength),
+  }
+}
+
+/**
+ * 光标所在位置对应的键；不在 t('...') 范围内返回 null。
+ * 正则只吃到右引号，所以内联提示落在 `)` 之前：t('key' 文案)。
+ */
 function keyAt(document, position) {
   const line = document.lineAt(position.line).text
   KEY_RE.lastIndex = 0
@@ -34,10 +48,13 @@ function keyAt(document, position) {
   return null
 }
 
+/** 按设置展开的 (语言, 相对目录) 列表。 */
 function* localeFiles(root) {
+  const { languages, localePaths } = settings()
   const seen = new Set()
-  for (const lang of LANGS)
-    for (const base of BASES(lang)) {
+  for (const lang of languages)
+    for (const template of localePaths) {
+      const base = template.replaceAll('{lang}', lang)
       let names
       try {
         names = fs.readdirSync(path.join(root, base))
@@ -110,8 +127,17 @@ function lookup(key) {
   return entries
 }
 
-const label = (rel) => (rel.includes('/zh-CN/') ? 'zh-CN' : rel.includes('/en-US/') ? 'en-US' : '')
-const zhOf = (key) => lookup(key).find((e) => e.rel.includes('/zh-CN/'))
+/** 路径属于哪种语言（按设置的顺序匹配）。 */
+function label(rel) {
+  return settings().languages.find((l) => rel.includes(`/${l}/`)) ?? ''
+}
+
+/** 按设置的语言顺序取第一条：默认语言（第一个）优先。 */
+function preferred(key) {
+  const entries = lookup(key)
+  const first = settings().languages[0]
+  return entries.find((e) => e.rel.includes(`/${first}/`)) ?? entries[0]
+}
 
 function activate(context) {
   const selector = [
@@ -161,7 +187,7 @@ function activate(context) {
       provideDefinition(document, position) {
         const hit = keyAt(document, position)
         if (!hit) return
-        const target = zhOf(hit.key) ?? lookup(hit.key)[0]
+        const target = preferred(hit.key)
         if (!target) return
         return new vscode.Location(
           vscode.Uri.file(target.file),
@@ -174,16 +200,16 @@ function activate(context) {
       onDidChangeInlayHints: changed.event,
       provideInlayHints(document, range) {
         if (!inline) return []
+        const max = settings().inlineMaxLength
         const hints = []
         for (let line = range.start.line; line <= range.end.line; line++) {
           const text = document.lineAt(line).text
           KEY_RE.lastIndex = 0
           let m
           while ((m = KEY_RE.exec(text))) {
-            const entry = zhOf(m[2])
+            const entry = preferred(m[2])
             if (!entry || typeof entry.value !== 'string') continue
-            const value =
-              entry.value.length > INLINE_MAX ? `${entry.value.slice(0, INLINE_MAX)}…` : entry.value
+            const value = entry.value.length > max ? `${entry.value.slice(0, max)}…` : entry.value
             const hint = new vscode.InlayHint(
               new vscode.Position(line, m.index + m[0].length),
               value,
@@ -201,6 +227,12 @@ function activate(context) {
         cache.clear()
         changed.fire()
       }
+    }),
+
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('i18nJump')) return
+      cache.clear()
+      changed.fire()
     }),
   )
 }

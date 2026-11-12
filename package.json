@@ -1,8 +1,8 @@
 {
   "name": "i18n-jump",
   "displayName": "i18n Jump",
-  "description": "悬停查看翻译、Cmd+点击跳到词条、手动开启的中文内联提示（本仓库的 locales 约定）",
-  "version": "0.0.3",
+  "description": "悬停查看翻译、Cmd+点击跳到词条、手动开启的中文内联提示；语言与词条位置可配置",
+  "version": "0.1.0",
   "publisher": "local",
   "engines": {
     "vscode": "^1.80.0"
@@ -15,8 +15,7 @@
     "onLanguage:javascript",
     "onLanguage:vue",
     "onLanguage:typescriptreact",
-    "onLanguage:javascriptreact",
-    "onCommand:i18nJump.toggleInline"
+    "onLanguage:javascriptreact"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -26,7 +25,42 @@
         "title": "切换翻译内联提示",
         "category": "i18n"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "i18n Jump",
+      "properties": {
+        "i18nJump.languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "zh-CN",
+            "en-US"
+          ],
+          "markdownDescription": "语言目录名。**第一个**是默认语言：Cmd+点击与内联提示都用它。"
+        },
+        "i18nJump.localePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "apps/web/src/locales/{lang}",
+            "packages/shared/src/i18n/{lang}",
+            "packages/shared/src/i18n/{lang}/modules",
+            "apps/server/src/i18n/{lang}"
+          ],
+          "markdownDescription": "词条文件所在目录，相对工作区根目录；`{lang}` 会替换成上面的语言名。扩展会读每个目录下的 `*.json`。"
+        },
+        "i18nJump.inlineMaxLength": {
+          "type": "number",
+          "minimum": 1,
+          "default": 15,
+          "markdownDescription": "内联提示保留的字符数，超出用 `…` 截断。"
+        }
+      }
+    }
   },
   "repository": {
     "type": "git",
