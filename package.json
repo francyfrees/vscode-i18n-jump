@@ -1,8 +1,8 @@
 {
   "name": "i18n-jump",
   "displayName": "i18n Jump",
-  "description": "悬停查看翻译、Cmd+点击跳到词条文件（本仓库的 locales 约定）",
-  "version": "0.0.2",
+  "description": "悬停查看翻译、Cmd+点击跳到词条、手动开启的中文内联提示（本仓库的 locales 约定）",
+  "version": "0.0.3",
   "publisher": "local",
   "engines": {
     "vscode": "^1.80.0"
@@ -15,9 +15,19 @@
     "onLanguage:javascript",
     "onLanguage:vue",
     "onLanguage:typescriptreact",
-    "onLanguage:javascriptreact"
+    "onLanguage:javascriptreact",
+    "onCommand:i18nJump.toggleInline"
   ],
   "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "i18nJump.toggleInline",
+        "title": "切换翻译内联提示",
+        "category": "i18n"
+      }
+    ]
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/francyfrees/vscode-i18n-jump.git"

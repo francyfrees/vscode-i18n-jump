@@ -1,4 +1,4 @@
-// 在 t('...') 上悬停显示中英文词条，Cmd+点击跳到词条文件。
+// t('...') 的三种辅助：悬停看中英文、Cmd+点击跳到中文词条、内联回显中文（手动开关）。
 // 解析规则与 scripts/i18n-jump.mjs 一致（见 packages/shared/src/common/locale.ts 的 mergeLocaleFile）：
 // 带点文件名与 shared modules 存完整键，单段文件名去掉第一段。
 const vscode = require('vscode')
@@ -13,6 +13,8 @@ const BASES = (lang) => [
   `apps/server/src/i18n/${lang}`,
 ]
 const KEY_RE = /(?:\$t|tx?|i18n(?:\.global)?\.t)\(\s*(['"`])([\w.-]+)\1/g
+/** 内联提示保留的字符数，超出用省略号。 */
+const INLINE_MAX = 15
 const cache = new Map()
 
 const rootOf = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
@@ -109,6 +111,7 @@ function lookup(key) {
 }
 
 const label = (rel) => (rel.includes('/zh-CN/') ? 'zh-CN' : rel.includes('/en-US/') ? 'en-US' : '')
+const zhOf = (key) => lookup(key).find((e) => e.rel.includes('/zh-CN/'))
 
 function activate(context) {
   const selector = [
@@ -119,7 +122,28 @@ function activate(context) {
     { language: 'javascriptreact' },
   ]
 
+  // 内联提示默认关闭，按工作区记住状态；状态栏可点
+  let inline = context.workspaceState.get('i18nJump.inline', false)
+  const changed = new vscode.EventEmitter()
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
+  status.command = 'i18nJump.toggleInline'
+  const refreshStatus = () => {
+    status.text = inline ? '$(eye) i18n 中文' : '$(eye-closed) i18n 中文'
+    status.tooltip = inline ? '翻译内联提示：已开启（点击关闭）' : '翻译内联提示：已关闭（点击开启）'
+    status.show()
+  }
+  refreshStatus()
+
   context.subscriptions.push(
+    status,
+    changed,
+    vscode.commands.registerCommand('i18nJump.toggleInline', () => {
+      inline = !inline
+      void context.workspaceState.update('i18nJump.inline', inline)
+      refreshStatus()
+      changed.fire()
+    }),
+
     vscode.languages.registerHoverProvider(selector, {
       provideHover(document, position) {
         const hit = keyAt(document, position)
@@ -132,19 +156,51 @@ function activate(context) {
         return new vscode.Hover(md, hit.range)
       },
     }),
+
     vscode.languages.registerDefinitionProvider(selector, {
       provideDefinition(document, position) {
         const hit = keyAt(document, position)
         if (!hit) return
-        const entries = lookup(hit.key)
-        if (!entries.length) return
-        // 默认跳中文词条（没有时退回第一条），避免多结果弹选择框
-        const target = entries.find((e) => e.rel.includes('/zh-CN/')) ?? entries[0]
-        return new vscode.Location(vscode.Uri.file(target.file), new vscode.Position(target.line - 1, 0))
+        const target = zhOf(hit.key) ?? lookup(hit.key)[0]
+        if (!target) return
+        return new vscode.Location(
+          vscode.Uri.file(target.file),
+          new vscode.Position(target.line - 1, 0),
+        )
       },
     }),
+
+    vscode.languages.registerInlayHintsProvider(selector, {
+      onDidChangeInlayHints: changed.event,
+      provideInlayHints(document, range) {
+        if (!inline) return []
+        const hints = []
+        for (let line = range.start.line; line <= range.end.line; line++) {
+          const text = document.lineAt(line).text
+          KEY_RE.lastIndex = 0
+          let m
+          while ((m = KEY_RE.exec(text))) {
+            const entry = zhOf(m[2])
+            if (!entry || typeof entry.value !== 'string') continue
+            const value =
+              entry.value.length > INLINE_MAX ? `${entry.value.slice(0, INLINE_MAX)}…` : entry.value
+            const hint = new vscode.InlayHint(
+              new vscode.Position(line, m.index + m[0].length),
+              value,
+            )
+            hint.paddingLeft = true
+            hints.push(hint)
+          }
+        }
+        return hints
+      },
+    }),
+
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (/\/locales\/|\/i18n\//.test(doc.uri.fsPath)) cache.clear()
+      if (/\/locales\/|\/i18n\//.test(doc.uri.fsPath)) {
+        cache.clear()
+        changed.fire()
+      }
     }),
   )
 }
