@@ -1,0 +1,26 @@
+{
+  "name": "i18n-jump",
+  "displayName": "i18n Jump",
+  "description": "悬停查看翻译、Cmd+点击跳到词条文件（本仓库的 locales 约定）",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:vue",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact"
+  ],
+  "main": "./extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francyfrees/vscode-i18n-jump.git"
+  },
+  "license": "MIT"
+}
