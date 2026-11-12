@@ -6,11 +6,11 @@
 
 给 **Vue / React / 原生 TypeScript / JavaScript** 里的 `t('...')` 翻译键加三个能力：**悬停看文案、Cmd+点击定位词条、中文内联提示**。不依赖任何第三方扩展，也不绑定某一套 i18n 库。
 
-![悬停查看翻译](docs/hover.png)
+![悬停查看翻译](https://cdn.jsdelivr.net/gh/francyfrees/vscode-i18n-jump@main/docs/hover.png)
 
-![内联回显中文](docs/inline.png)
+![内联回显中文](https://cdn.jsdelivr.net/gh/francyfrees/vscode-i18n-jump@main/docs/inline.png)
 
-![Cmd+点击定位词条](docs/jump.png)
+![Cmd+点击定位词条](https://cdn.jsdelivr.net/gh/francyfrees/vscode-i18n-jump@main/docs/jump.png)
 
 ## 功能
 
@@ -41,7 +41,7 @@
 
 内联提示**默认开启**，两种切换方式（状态按工作区记住）：
 
-![在哪里切换中文内联](docs/enable.png)
+![在哪里切换中文内联](https://cdn.jsdelivr.net/gh/francyfrees/vscode-i18n-jump@main/docs/enable.png)
 
 - 点状态栏右下角的 **`◐ i18n 中文`**；
 - 或在命令面板（`Cmd+Shift+P`）执行 **`i18n: 切换翻译内联提示`**。

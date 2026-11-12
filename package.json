@@ -2,7 +2,7 @@
   "name": "i18n-jump",
   "displayName": "i18n Jump",
   "description": "悬停查看翻译、Cmd+点击跳到词条、中文内联提示；Vue/React/TS 通用，语言与词条位置可配置",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "local",
   "engines": {
     "vscode": "^1.80.0"
