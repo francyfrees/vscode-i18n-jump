@@ -2,7 +2,7 @@
   "name": "i18n-jump",
   "displayName": "i18n Jump",
   "description": "悬停查看翻译、Cmd+点击跳到词条、中文内联提示；Vue/React/TS 通用，语言与词条位置可配置",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "local",
   "engines": {
     "vscode": "^1.80.0"
@@ -58,6 +58,40 @@
           "minimum": 1,
           "default": 15,
           "markdownDescription": "内联提示保留的字符数，超出用 `…` 截断。"
+        },
+        "i18nJump.keyCalls": {
+          "type": "array",
+          "default": [
+            { "call": "t", "arg": 0 },
+            { "call": "$t", "arg": 0 },
+            { "call": "i18n.t", "arg": 0 },
+            { "call": "i18n.global.t", "arg": 0 }
+          ],
+          "markdownDescription": "词条键出现在哪些调用里。`call` 是函数名（可带点号，如 `i18n.global.t`），`arg` 是键来自第几个参数（从 0 开始，默认 0）；也可只写函数名。数组**整体覆盖**默认值，不合并。",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "required": ["call"],
+                "properties": {
+                  "call": {
+                    "type": "string",
+                    "description": "函数名，可带点号"
+                  },
+                  "arg": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "键来自第几个参数（从 0 开始）"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
         }
       }
     }

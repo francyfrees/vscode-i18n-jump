@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/github/license/francyfrees/vscode-i18n-jump)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/francyfrees/vscode-i18n-jump)](https://github.com/francyfrees/vscode-i18n-jump/releases)
 
-给 **Vue / React / 原生 TypeScript / JavaScript** 里的 `t('...')` 翻译键加三个能力：**悬停看文案、Cmd+点击定位词条、中文内联提示**。不依赖任何第三方扩展，也不绑定某一套 i18n 库。
+给 **Vue / React / 原生 TypeScript / JavaScript** 里的 `t('...')` 等调用中的翻译键加三个能力：**悬停看文案、Cmd+点击定位词条、中文内联提示**。不依赖任何第三方扩展，也不绑定某一套 i18n 库；哪些函数里算翻译键可配置。
 
 ![悬停查看翻译](https://cdn.jsdelivr.net/gh/francyfrees/vscode-i18n-jump@main/docs/hover.png)
 
@@ -22,18 +22,28 @@
 
 ### 适用范围
 
-扩展对语言/框架没有假设，只认下面这几种**字面量**写法：
+扩展对语言/框架没有假设，只认**调用里的字面量键**。默认认这几种写法（键都是第一个参数）：
 
 | 写法 | 常见来源 |
 | --- | --- |
 | `t('a.b')` | vue-i18n、react-i18next、i18next |
-| `$t('a.b')` | vue-i18n 模板全局 |
+| `$t('a.b')` | vue-i18n 模板全局、`this.$t` |
 | `i18n.t('a.b')` | i18next 实例 |
 | `i18n.global.t('a.b')` | vue-i18n 组合式 API |
 
 识别的文件类型：`typescript`、`typescriptreact`、`javascript`、`javascriptreact`、`vue`。
 
-不支持的：非字面量键（`` t(`a.${x}`) ``）、对象形式的调用（`formatMessage({ id: 'a.b' })`）。
+项目自己的包装函数在设置里加一条 `i18nJump.keyCalls` 就行，比如键放在第三个参数的 `def('A0400', 400, 'error.common.bad_request')`：
+
+```jsonc
+"i18nJump.keyCalls": [
+  { "call": "def", "arg": 2 }
+]
+```
+
+`call` 是函数名（带点号也行，`i18n.global.t`、`n.global.t`、`this.$t` 都认），`arg` 是键来自第几个参数（从 0 开始，省略即 0），也可以只写函数名。数组**整体覆盖**默认值，不合并——要用默认的 `t` 等写法就得一起写进去，完整示例见下方「配置」。
+
+不支持的：非字面量键（`` t(`a.${x}`) ``）、不带点号的键（`t('save')`）、对象形式的调用（`formatMessage({ id: 'a.b' })`）；配置了 `arg` 时只认该参数里的**第一个**点分字符串，三元分支之类不算。
 
 词条放在哪、有哪几种语言，全部由设置决定（见下方「配置」），所以不在上面列表里的语言目录结构也能用。
 
@@ -98,7 +108,7 @@ cd vscode-i18n-jump
 
 ## 配置
 
-三个设置都在 VS Code 设置里搜 `i18n Jump` 修改。默认值就是本仓库的布局，**不配也能用**：
+四个设置都在 VS Code 设置里搜 `i18n Jump` 修改。默认值就是本仓库的布局，**不配也能用**：
 
 语言数量不限，数组里有几个就查几个，悬停按顺序全部列出（上方截图里演示了 8 种）。
 
@@ -116,11 +126,21 @@ cd vscode-i18n-jump
   ],
 
   // 内联提示最多显示多少字
-  "i18nJump.inlineMaxLength": 15
+  "i18nJump.inlineMaxLength": 15,
+
+  // 词条键出现在哪些调用里，arg 可省略（等于 0）
+  "i18nJump.keyCalls": [
+    { "call": "t", "arg": 0 },
+    { "call": "$t", "arg": 0 },
+    { "call": "i18n.t", "arg": 0 },
+    { "call": "i18n.global.t", "arg": 0 },
+    { "call": "msg", "arg": 0 },   // e2e 里的 msg('validation.required')
+    { "call": "def", "arg": 2 }    // 错误码 def('A0400', 400, 'error.common.bad_request')
+  ]
 }
 ```
 
-换到别的项目只改前两项：
+换到别的项目只改前两项，包装函数不同再加 `keyCalls`：
 
 ```jsonc
 {
@@ -134,7 +154,9 @@ cd vscode-i18n-jump
 ## 已知限制
 
 - 文件**命名约定**仍按本项目：文件名带点（`agent.chat.json`）时存完整键，不带点（`common.json`）时去掉第一段。扩展两种都试，但只要不是这两种约定就找不到；
-- 只解析单行内的 `t('...')`，跨行书写（`t(\n  'key'\n)`）不会命中；
+- 只解析单行内的调用，跨行书写（`def(\n  'A0400',\n  400,\n  'error.x'\n)`）不会命中；
+- 键至少包含一个点号，纯单词键（`t('save')`）不识别；
+- 一条调用只认配置参数里的第一个点分字符串：`msg(ok ? 'a.b' : 'c.d')` 只命中 `a.b`；
 - 多定义时固定跳默认语言（`languages` 的第一个）；
 - 内联提示落在右引号之后、`)` 之前：`t('key' 文案)`；
 - VS Code 扩展宿主只支持 CommonJS，因此文件顶部有一条 `eslint-disable` 注释，属于预期写法。
