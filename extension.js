@@ -23,6 +23,8 @@ const DEFAULTS = {
   ],
   // 对象属性、数组里的字符串（label: 'field.x'）不经过函数调用，按值是否命中词条判断
   keyValues: false,
+  // 这些属性/变量名上的字面量不当词条（如 domain: 'wxoa.draft'），排除少数同名值
+  keyValueIgnoreProps: [],
 }
 // 键的形状：至少一段点分，排除 'createdAt'、'A0400' 这类普通字符串
 const KEY_SHAPE = /^[\w-]+(?:\.[\w-]+)+$/
@@ -38,7 +40,13 @@ function settings() {
     inlineMaxLength: cfg.get('inlineMaxLength', DEFAULTS.inlineMaxLength),
     keyCalls: normalizeCalls(cfg.get('keyCalls', DEFAULTS.keyCalls)),
     keyValues: cfg.get('keyValues', DEFAULTS.keyValues) === true,
+    keyValueIgnoreProps: normalizeProps(cfg.get('keyValueIgnoreProps', DEFAULTS.keyValueIgnoreProps)),
   }
+}
+
+/** 属性名清单：只留非空字符串。 */
+function normalizeProps(raw) {
+  return (Array.isArray(raw) ? raw : []).filter((p) => typeof p === 'string' && p)
 }
 
 /** 过滤掉写坏的条目（缺 call、arg 不是非负整数），全空时退回默认，避免设置写错后扩展静默失效。 */
@@ -133,10 +141,10 @@ function skipString(text, start) {
 }
 
 /**
- * 键值写法：行内任何字符串字面量，只要在词条里查得到就算命中。
- * 覆盖 label: 'field.x' 这类对象属性；注释里的字符串不算。
+ * 键值写法：行内字符串字面量，只要在词条里查得到就算命中，覆盖 label: 'field.x'。
+ * keyValueIgnoreProps 里的属性不认；带连字符的模板属性（v-model、table-id）直接跳过；注释不算。
  */
-function literalHits(text, keyValues) {
+function literalHits(text, { keyValues, keyValueIgnoreProps }) {
   if (!keyValues) return []
   const hits = []
   let i = 0
@@ -156,7 +164,9 @@ function literalHits(text, keyValues) {
     const close = skipString(text, i)
     if (close < 0) break
     const value = text.slice(i + 1, close)
-    if ((ch !== '`' || !value.includes('${')) && KEY_SHAPE.test(value) && entriesFor(value).length) {
+    const prop = contextOf(text, i)
+    const allowed = !prop?.includes('-') && !keyValueIgnoreProps.includes(prop ?? '')
+    if (allowed && (ch !== '`' || !value.includes('${')) && KEY_SHAPE.test(value) && entriesFor(value).length) {
       hits.push({ key: value, start: i, end: close + 1 })
     }
     i = close + 1
@@ -164,10 +174,24 @@ function literalHits(text, keyValues) {
   return hits
 }
 
+/** 字面量前面是哪个属性/变量：`label: '…'`、`const name = '…'`；认不出返回 null。 */
+function contextOf(text, quoteAt) {
+  let i = quoteAt - 1
+  while (i >= 0 && /\s/.test(text[i])) i--
+  if (i < 0) return null
+  if (text[i] === ':') i--
+  else if (text[i] === '=' && !/[=!<>]/.test(text[i - 1] ?? '') && text[i + 1] !== '=' && text[i + 1] !== '>') i--
+  else return null
+  while (i >= 0 && /\s/.test(text[i])) i--
+  const end = i + 1
+  while (i >= 0 && /[\w$-]/.test(text[i])) i--
+  return text.slice(i + 1, end) || null
+}
+
 /** 一行里的全部命中：配置调用的参数优先，再补上键值写法，同一个字面量只留一条。 */
-function hitsInLine(text, { keyCalls, keyValues }) {
+function hitsInLine(text, { keyCalls, keyValues, keyValueIgnoreProps }) {
   const hits = findKeysInLine(text, keyCalls)
-  for (const hit of literalHits(text, keyValues)) {
+  for (const hit of literalHits(text, { keyValues, keyValueIgnoreProps })) {
     if (!hits.some((h) => h.start === hit.start && h.end === hit.end)) hits.push(hit)
   }
   return hits.sort((a, b) => a.start - b.start)
@@ -178,9 +202,9 @@ function hitsInLine(text, { keyCalls, keyValues }) {
  * 范围只到右引号，所以内联提示落在键后面：t('key' 文案)。
  */
 function keyAt(document, position) {
-  const { keyCalls, keyValues } = settings()
+  const { keyCalls, keyValues, keyValueIgnoreProps } = settings()
   const line = document.lineAt(position.line).text
-  for (const hit of hitsInLine(line, { keyCalls, keyValues })) {
+  for (const hit of hitsInLine(line, { keyCalls, keyValues, keyValueIgnoreProps })) {
     if (position.character >= hit.start && position.character <= hit.end) {
       return { key: hit.key, range: new vscode.Range(position.line, hit.start, position.line, hit.end) }
     }
@@ -368,11 +392,11 @@ function activate(context) {
       onDidChangeInlayHints: changed.event,
       provideInlayHints(document, range) {
         if (!inline) return []
-        const { inlineMaxLength: max, keyCalls, keyValues } = settings()
+        const { inlineMaxLength: max, keyCalls, keyValues, keyValueIgnoreProps } = settings()
         const hints = []
         for (let line = range.start.line; line <= range.end.line; line++) {
           const text = document.lineAt(line).text
-          for (const hit of hitsInLine(text, { keyCalls, keyValues })) {
+          for (const hit of hitsInLine(text, { keyCalls, keyValues, keyValueIgnoreProps })) {
             const entry = preferred(hit.key)
             if (!entry || typeof entry.value !== 'string') continue
             const value = entry.value.length > max ? `${entry.value.slice(0, max)}…` : entry.value
