@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- VS Code 扩展宿主只加载 CommonJS */
 // t('...') 的三种辅助：悬停看中英文、Cmd+点击跳到词条、内联回显（手动开关）。
-// 词条目录、语言、截断长度与「键在哪个调用里」都由设置决定，默认值对应本仓库的布局。
+// 词条目录、语言、截断长度、「键在哪个调用里」与「任何能查到词条的字符串」都由设置决定。
 const vscode = require('vscode')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -21,10 +21,11 @@ const DEFAULTS = {
     { call: 'i18n.t', arg: 0 },
     { call: 'i18n.global.t', arg: 0 },
   ],
+  // 对象属性、数组里的字符串（label: 'field.x'）不经过函数调用，按值是否命中词条判断
+  keyValues: false,
 }
 // 键的形状：至少一段点分，排除 'createdAt'、'A0400' 这类普通字符串
 const KEY_SHAPE = /^[\w-]+(?:\.[\w-]+)+$/
-const cache = new Map()
 
 const rootOf = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
 
@@ -36,6 +37,7 @@ function settings() {
     localePaths: cfg.get('localePaths', DEFAULTS.localePaths),
     inlineMaxLength: cfg.get('inlineMaxLength', DEFAULTS.inlineMaxLength),
     keyCalls: normalizeCalls(cfg.get('keyCalls', DEFAULTS.keyCalls)),
+    keyValues: cfg.get('keyValues', DEFAULTS.keyValues) === true,
   }
 }
 
@@ -131,12 +133,54 @@ function skipString(text, start) {
 }
 
 /**
- * 光标所在位置对应的键；不在某个配置调用的键字面量上返回 null。
+ * 键值写法：行内任何字符串字面量，只要在词条里查得到就算命中。
+ * 覆盖 label: 'field.x' 这类对象属性；注释里的字符串不算。
+ */
+function literalHits(text, keyValues) {
+  if (!keyValues) return []
+  const hits = []
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === '/' && text[i + 1] === '/') break
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2)
+      if (end < 0) break
+      i = end + 2
+      continue
+    }
+    if (ch !== '"' && ch !== "'" && ch !== '`') {
+      i++
+      continue
+    }
+    const close = skipString(text, i)
+    if (close < 0) break
+    const value = text.slice(i + 1, close)
+    if ((ch !== '`' || !value.includes('${')) && KEY_SHAPE.test(value) && entriesFor(value).length) {
+      hits.push({ key: value, start: i, end: close + 1 })
+    }
+    i = close + 1
+  }
+  return hits
+}
+
+/** 一行里的全部命中：配置调用的参数优先，再补上键值写法，同一个字面量只留一条。 */
+function hitsInLine(text, { keyCalls, keyValues }) {
+  const hits = findKeysInLine(text, keyCalls)
+  for (const hit of literalHits(text, keyValues)) {
+    if (!hits.some((h) => h.start === hit.start && h.end === hit.end)) hits.push(hit)
+  }
+  return hits.sort((a, b) => a.start - b.start)
+}
+
+/**
+ * 光标所在位置对应的键；不在任何命中上返回 null。
  * 范围只到右引号，所以内联提示落在键后面：t('key' 文案)。
  */
 function keyAt(document, position) {
+  const { keyCalls, keyValues } = settings()
   const line = document.lineAt(position.line).text
-  for (const hit of findKeysInLine(line, settings().keyCalls)) {
+  for (const hit of hitsInLine(line, { keyCalls, keyValues })) {
     if (position.character >= hit.start && position.character <= hit.end) {
       return { key: hit.key, range: new vscode.Range(position.line, hit.start, position.line, hit.end) }
     }
@@ -167,9 +211,62 @@ function* localeFiles(root) {
     }
 }
 
-/** 逐行维护键栈，返回 path 指向的叶子行号与值。 */
-function locate(text, target) {
-  const wanted = target.join('.')
+let index = null
+let entryCache = new Map()
+
+/** 词条或设置变化后丢弃索引，下次查询时重建。 */
+function resetIndex() {
+  index = null
+  entryCache = new Map()
+}
+
+/**
+ * 两份索引：exact 存叶子路径本身（文件名带点的词条文件存完整键），
+ * prefixed 存「文件名 + 叶子路径」（文件名不带点时键去掉第一段）。
+ * 查键先看 exact，找不到才退回 prefixed，避免不同模块的同名键串台。
+ */
+function getIndex() {
+  if (index) return index
+  index = { exact: new Map(), prefixed: new Map() }
+  const root = rootOf()
+  if (!root) return index
+  for (const rel of localeFiles(root)) {
+    let text
+    try {
+      text = fs.readFileSync(path.join(root, rel), 'utf8')
+    } catch {
+      continue
+    }
+    const base = path.basename(rel, '.json')
+    const fullKeyFile = base.includes('.')
+    const entry = (leaf) => ({ file: path.join(root, rel), line: leaf.line, value: leaf.value, rel })
+    for (const leaf of leaves(text)) {
+      addEntry(index.exact, leaf.path, entry(leaf))
+      if (!fullKeyFile) addEntry(index.prefixed, `${base}.${leaf.path}`, entry(leaf))
+    }
+  }
+  return index
+}
+
+function addEntry(map, key, entry) {
+  const list = map.get(key) ?? []
+  list.push(entry)
+  map.set(key, list)
+}
+
+/** 键对应的词条：完整键优先，其次按「不带点文件名 + 去掉第一段的键」查。 */
+function entriesFor(key) {
+  const cached = entryCache.get(key)
+  if (cached) return cached
+  const idx = getIndex()
+  const exact = idx.exact.get(key)
+  const entries = exact?.length ? exact : (idx.prefixed.get(key) ?? [])
+  entryCache.set(key, entries)
+  return entries
+}
+
+/** 逐行维护键栈，产出每个叶子键的路径、行号与值。 */
+function* leaves(text) {
   const stack = []
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
@@ -188,39 +285,14 @@ function locate(text, target) {
       stack.push({ name, indent })
       continue
     }
-    if ([...stack.map((s) => s.name), name].join('.') === wanted) {
-      let value = rest.replace(/,\s*$/, '')
-      try {
-        value = JSON.parse(value)
-      } catch {
-        /* 非字符串值按原文显示 */
-      }
-      return { line: i + 1, value }
+    let value = rest.replace(/,\s*$/, '')
+    try {
+      value = JSON.parse(value)
+    } catch {
+      /* 非字符串值按原文显示 */
     }
+    yield { path: [...stack.map((s) => s.name), name].join('.'), line: i + 1, value }
   }
-  return null
-}
-
-function lookup(key) {
-  const root = rootOf()
-  if (!root) return []
-  const hit = cache.get(key)
-  if (hit) return hit
-  const segments = key.split('.')
-  const entries = []
-  for (const rel of localeFiles(root)) {
-    const text = fs.readFileSync(path.join(root, rel), 'utf8')
-    for (const target of [segments, segments.slice(1)]) {
-      if (!target.length) continue
-      const found = locate(text, target)
-      if (found) {
-        entries.push({ file: path.join(root, rel), line: found.line, value: found.value, rel })
-        break
-      }
-    }
-  }
-  cache.set(key, entries)
-  return entries
 }
 
 /** 路径属于哪种语言（按设置的顺序匹配）。 */
@@ -230,7 +302,7 @@ function label(rel) {
 
 /** 按设置的语言顺序取第一条：默认语言（第一个）优先。 */
 function preferred(key) {
-  const entries = lookup(key)
+  const entries = entriesFor(key)
   const first = settings().languages[0]
   return entries.find((e) => e.rel.includes(`/${first}/`)) ?? entries[0]
 }
@@ -270,7 +342,7 @@ function activate(context) {
       provideHover(document, position) {
         const hit = keyAt(document, position)
         if (!hit) return
-        const entries = lookup(hit.key)
+        const entries = entriesFor(hit.key)
         const md = new vscode.MarkdownString()
         md.appendMarkdown(`**${hit.key}**\n\n`)
         if (!entries.length) md.appendMarkdown('_没有找到对应词条_')
@@ -296,11 +368,11 @@ function activate(context) {
       onDidChangeInlayHints: changed.event,
       provideInlayHints(document, range) {
         if (!inline) return []
-        const { inlineMaxLength: max, keyCalls } = settings()
+        const { inlineMaxLength: max, keyCalls, keyValues } = settings()
         const hints = []
         for (let line = range.start.line; line <= range.end.line; line++) {
           const text = document.lineAt(line).text
-          for (const hit of findKeysInLine(text, keyCalls)) {
+          for (const hit of hitsInLine(text, { keyCalls, keyValues })) {
             const entry = preferred(hit.key)
             if (!entry || typeof entry.value !== 'string') continue
             const value = entry.value.length > max ? `${entry.value.slice(0, max)}…` : entry.value
@@ -315,14 +387,20 @@ function activate(context) {
 
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (/\/locales\/|\/i18n\//.test(doc.uri.fsPath)) {
-        cache.clear()
+        resetIndex()
         changed.fire()
       }
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration('i18nJump')) return
-      cache.clear()
+      resetIndex()
+      changed.fire()
+    }),
+
+    // 同一窗口切换工作区时，词条目录跟着换，旧索引必须丢弃
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      resetIndex()
       changed.fire()
     }),
   )
